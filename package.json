@@ -1,0 +1,36 @@
+{
+  "name": "dsh-easy-upgrade",
+  "version": "0.1.0",
+  "description": "DSH web plugin: check the local harness repo against origin/<branch> and one-click upgrade (stop dsh, reset --hard, install, build, restart). · DSH 一键升级：检查本地仓库与远程主分支差异，侧栏设置上方显示版本/更新按钮，点击一键升级并重启服务。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./invariant": "./lib/invariant.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && /home/mao/deepseek-harness/node_modules/.bin/tsdown",
+    "typecheck": "echo 'Standalone package uses tsdown transpilation; profile-resolved types are checked by the bundle build.'"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

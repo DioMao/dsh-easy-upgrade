@@ -1,0 +1,14 @@
+# Build artifacts
+lib/
+
+# Dependencies
+/node_modules
+
+# Internal Aegis/dev tracking (not plugin source)
+docs/
+
+# Local tooling scratch
+*.tsbuildinfo
+*.log
+.DS_Store
+*.tmp

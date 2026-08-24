@@ -1,0 +1,22 @@
+# dsh-easy-upgrade bundle patch
+
+# Host row inserted into the web profile composition. The loader resolves the
+# package name against the profile's node_modules (the `dsh plugin add`
+# install channel), and the client half is served by client-modules from the
+# package's `./client` export (dsh.client declaration in package.json).
+#
+# Only the host row is declared here; the browser half needs no row — the
+# loader mounts it automatically for packages carrying `dsh.client`.
+#
+# `repoDir` is intentionally unset: the plugin auto-matches the running dsh to
+# its deepseek-harness source checkout at boot (src/detect.ts). Set it here
+# only to pin a different checkout explicitly.
+- insert:
+    - id: dsh-easy-upgrade
+      name: 'dsh-easy-upgrade'
+      config:
+        branch: master
+        checkIntervalMs: 3600000
+        retryCount: 3
+        retryDelayMs: 5000
+        stateDir: ''

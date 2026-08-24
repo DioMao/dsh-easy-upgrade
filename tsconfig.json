@@ -1,0 +1,15 @@
+{
+  "extends": "/home/mao/deepseek-harness/tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "types": ["node"],
+    "typeRoots": [
+      "/home/mao/deepseek-harness/node_modules/@types",
+      "/home/mao/deepseek-harness/apps/web/node_modules/@types"
+    ],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src"]
+}
