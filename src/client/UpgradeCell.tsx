@@ -3,17 +3,24 @@ import {
   Button,
   IconDownloadOutline16,
   IconRefreshOutline16,
+  Modal,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { GithubRelease } from '../release-notes.ts'
 import type { UpgradeState } from '../state.ts'
-import type { UpgradeLocaleKey } from './locales.ts'
+import { ReleaseNotes } from './ReleaseNotes.tsx'
+import css from './upgrade.module.css'
 
 export type UpgradeCellProps = PropsRuntime<'sidebar.footer.action'>
   & PropsLocale<'dsh-easy-upgrade'>
 
 type ApiResult =
   | { ok: true, state: UpgradeState }
+  | { ok: false, error: { code: string, message: string } }
+
+type ReleaseResult =
+  | { ok: true, release: GithubRelease | null }
   | { ok: false, error: { code: string, message: string } }
 
 const API_ROOT = '/dsh-upgrade/api'
@@ -27,6 +34,9 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
   const [checking, setChecking] = useState(false)
   const [manualError, setManualError] = useState<string | null>(null)
   const [upgrading, setUpgrading] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [release, setRelease] = useState<GithubRelease | null>(null)
+  const [releaseLoading, setReleaseLoading] = useState(false)
 
   const refreshStatus = useCallback(async (): Promise<void> => {
     const result = await request('/status', 'GET')
@@ -52,11 +62,32 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
     if (manual) setManualError(result.error.message)
   }, [checking, upgrading])
 
-  const upgrade = useCallback(async (): Promise<void> => {
-    if (upgrading || checking) return
-    const ahead = state?.status?.ahead ?? 0
-    const message = ahead > 0 ? t('confirmAhead', { ahead }) : t('confirm')
-    if (!window.confirm(message)) return
+  // Best-effort GitHub release notes for the confirmation dialog. Failure is
+  // silent: the dialog degrades to its generic copy when release === null.
+  const loadRelease = useCallback(async (): Promise<void> => {
+    setReleaseLoading(true)
+    setRelease(null)
+    const result = await requestRelease()
+    setReleaseLoading(false)
+    if (result.ok) setRelease(result.release)
+  }, [])
+
+  // Replace the native confirm() with the framework Modal: open it first so the
+  // release-notes region can show its loading state while the host fetches.
+  const openUpgradeDialog = useCallback((): void => {
+    if (checking || upgrading) return
+    setManualError(null)
+    setDialogOpen(true)
+    void loadRelease()
+  }, [checking, loadRelease, upgrading])
+
+  const closeUpgradeDialog = useCallback((): void => {
+    setDialogOpen(false)
+  }, [])
+
+  const confirmUpgrade = useCallback(async (): Promise<void> => {
+    if (upgrading) return
+    setDialogOpen(false)
     setUpgrading(true)
     setManualError(null)
     const result = await request('/upgrade', 'POST')
@@ -64,7 +95,7 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
       setUpgrading(false)
       setManualError(result.error.message)
     }
-  }, [checking, state, t, upgrading])
+  }, [upgrading])
 
   useEffect(() => {
     void refreshStatus()
@@ -91,7 +122,7 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
     : t('railCheck', { version }), [t, updateAvailable, version])
 
   if (!wide) {
-    const action = updateAvailable ? upgrade : () => { void check(true) }
+    const action = updateAvailable ? openUpgradeDialog : () => { void check(true) }
     // Rail geometry is a single circular icon, so a manual-check failure is
     // surfaced through the accessible label / Tooltip overlay (visible on
     // hover and keyboard focus) instead of an inline error row.
@@ -124,43 +155,92 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
     return <div style={wideRowStyle} aria-live="polite">{t('restartPending')}</div>
   }
 
+  const ahead = state?.status?.ahead ?? 0
+  const fromVersion = state?.status?.localVersion ?? null
+  const toVersion = state?.status?.remoteVersion ?? null
+  const notesBody = releaseLoading
+    ? <div className={css.notesFallback}>{t('releaseNotesLoading')}</div>
+    : release !== null && release.body !== null
+      ? <div className={css.notesBox}><ReleaseNotes text={release.body} /></div>
+      : release !== null
+        ? <div className={css.notesFallback}>{t('releaseNotesEmpty')}</div>
+        : <div className={css.notesFallback}>{t('releaseNotesUnavailable')}</div>
+
   return (
-    <div style={containerStyle}>
-      {updateAvailable ? (
-        <Button
-          size="sm"
-          variant="primary"
-          disabled={checking}
-          onClick={() => { void upgrade() }}
-          style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 12 }}
-        >
-          {t('available')}
-        </Button>
-      ) : (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={checking}
-          onClick={() => { void check(true) }}
-          aria-label={t('check')}
-          title={t('upToDate')}
-          style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 12 }}
-        >
-          {checking ? t('checking') : t('currentVersion', { version })}
-        </Button>
-      )}
-      {manualError !== null && (
-        <div style={errorStyle} role="status">
-          {t('checkingFailed', { message: manualError })}
+    <>
+      <div style={containerStyle}>
+        {updateAvailable ? (
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={checking}
+            onClick={openUpgradeDialog}
+            style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 12 }}
+          >
+            {t('available')}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={checking}
+            onClick={() => { void check(true) }}
+            aria-label={t('check')}
+            title={t('upToDate')}
+            style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 12 }}
+          >
+            {checking ? t('checking') : t('currentVersion', { version })}
+          </Button>
+        )}
+        {manualError !== null && (
+          <div style={errorStyle} role="status">
+            {t('checkingFailed', { message: manualError })}
+          </div>
+        )}
+      </div>
+      <Modal
+        open={dialogOpen}
+        onClose={closeUpgradeDialog}
+        title={t('upgradeTitle')}
+        description={ahead > 0 ? t('confirmAhead', { ahead }) : t('confirm')}
+        closeLabel={t('cancel')}
+        className={css.upgradeDialog}
+        footer={(
+          <>
+            <Button variant="outline" onClick={closeUpgradeDialog}>{t('cancel')}</Button>
+            <Button variant="primary" onClick={() => { void confirmUpgrade() }}>{t('confirmUpgrade')}</Button>
+          </>
+        )}
+      >
+        <div className={css.summary}>
+          {t('versionChange', {
+            // The template carries the v prefixes; pass bare versions.
+            from: fromVersion === null ? '—' : fromVersion,
+            to: toVersion === null ? '—' : toVersion,
+          })}
         </div>
-      )}
-      {state?.installKind === 'source' && state?.repoDir !== null && (
-        <div style={repoStyle} title={state.repoDir}>
-          {t('matchedRepo', { repo: state.repoDir })}
+        <div className={css.notesHeader}>
+          <span className={css.notesTitle}>{t('releaseNotesTitle')}</span>
+          {release !== null && (
+            <span className={css.notesMeta}>
+              {t('releaseMeta', {
+                tag: release.tagName,
+                date: formatDate(release.publishedAt),
+              })}
+            </span>
+          )}
         </div>
-      )}
-    </div>
+        {notesBody}
+      </Modal>
+    </>
   )
+}
+
+function formatDate(value: string | null): string {
+  if (value === null) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
 async function request(path: string, method: 'GET' | 'POST'): Promise<ApiResult> {
@@ -171,6 +251,20 @@ async function request(path: string, method: 'GET' | 'POST'): Promise<ApiResult>
       ...(method === 'POST' ? { headers: { 'content-type': 'application/json' } } : {}),
     })
     const parsed = await response.json() as ApiResult
+    if (!response.ok && parsed.ok) return { ok: false, error: { code: 'http-error', message: `HTTP ${response.status}` } }
+    return parsed
+  } catch (error) {
+    return { ok: false, error: { code: 'network-error', message: error instanceof Error ? error.message : String(error) } }
+  }
+}
+
+async function requestRelease(): Promise<ReleaseResult> {
+  try {
+    const response = await fetch(`${API_ROOT}/release`, {
+      method: 'GET',
+      credentials: 'same-origin',
+    })
+    const parsed = await response.json() as ReleaseResult
     if (!response.ok && parsed.ok) return { ok: false, error: { code: 'http-error', message: `HTTP ${response.status}` } }
     return parsed
   } catch (error) {
@@ -204,14 +298,6 @@ const wideRowStyle = {
 const errorStyle = {
   margin: '0 4px 4px 10px',
   color: 'var(--dsw-alias-state-error-primary)',
-  fontSize: 11,
-  lineHeight: '16px',
-  overflowWrap: 'anywhere' as const,
-}
-
-const repoStyle = {
-  margin: '0 4px 4px 10px',
-  color: 'var(--dsw-alias-label-secondary)',
   fontSize: 11,
   lineHeight: '16px',
   overflowWrap: 'anywhere' as const,

@@ -1,0 +1,166 @@
+/* dsh-easy-upgrade client styles. Plain CSS modules compiled by the harness
+   clientBundle preset (lightningcss): every class is hashed at build time and
+   the stylesheet is injected as a plugin-owned <style> tag at load. Colors and
+   surfaces come from the harness theme tokens so the dialog and the info icon
+   match the rest of the web UI. */
+
+/* Confirmation dialog: the primitives Modal defaults to a 380px card; release
+   notes need a wider column. The rest of the chrome (mask, card fill, shadow,
+   header/footer) stays the framework's own. */
+.upgradeDialog {
+  width: min(560px, 100%);
+}
+
+/* Version transition block at the top of the dialog body. */
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* Heading row above the notes body: "更新内容" + release tag/date. */
+.notesHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.notesTitle {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.notesMeta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Scrollable release-notes surface. */
+.notesBox {
+  margin-top: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Loading and unavailable states share a subdued dashed surface. */
+.notesFallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Lightweight GitHub-Flavored-Markdown surface for release bodies. */
+.notes p {
+  margin: 0 0 8px;
+}
+.notes p:last-child {
+  margin-bottom: 0;
+}
+.notes h1,
+.notes h2,
+.notes h3,
+.notes h4 {
+  margin: 10px 0 6px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  line-height: 1.4;
+}
+.notes h1:first-child,
+.notes h2:first-child,
+.notes h3:first-child,
+.notes h4:first-child {
+  margin-top: 0;
+}
+.notes h1 {
+  font-size: 15px;
+}
+.notes h2 {
+  font-size: 14px;
+}
+.notes h3,
+.notes h4 {
+  font-size: 13px;
+}
+.notes ul,
+.notes ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.notes li {
+  margin: 2px 0;
+}
+.notes li > p {
+  margin: 0;
+}
+.notes pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  overflow-x: auto;
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre;
+}
+.notes code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-base);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.notes pre code {
+  padding: 0;
+  background: transparent;
+}
+.notes a {
+  color: var(--dsw-alias-brand-primary);
+  text-decoration: none;
+}
+.notes a:hover {
+  text-decoration: underline;
+}
+.notes blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+}
+.notes hr {
+  margin: 10px 0;
+  border: none;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}

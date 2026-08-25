@@ -127,3 +127,13 @@ export async function checkForUpdate(repoDir: string, branch: string): Promise<G
 export async function currentHead(repoDir: string): Promise<string> {
   return (await runGit(repoDir, ['rev-parse', 'HEAD'])).trim()
 }
+
+/**
+ * The `origin` remote URL, used to locate the GitHub repository whose latest
+ * release notes populate the upgrade confirmation dialog. Best-effort: callers
+ * treat a failure as "no release notes available".
+ */
+export async function originRemoteUrl(repoDir: string): Promise<string> {
+  const raw = await runGit(repoDir, ['remote', 'get-url', 'origin'])
+  return raw.trim()
+}

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { UpgradeConfig } from './config.js'
 import { checkForUpdate, currentHead, worktreeIsClean } from './git.js'
+import { fetchLatestRelease, type GithubRelease } from './release-notes.js'
 import type { LaunchSpec, StateStore, UpgradeState } from './state.js'
 import { launchUpgradeRunner } from './upgrade-runner.js'
 
@@ -9,6 +10,7 @@ export interface UpgradeApiController {
   check(): Promise<UpgradeState>
   beginUpgrade(): Promise<void>
   tailLog(): Promise<string>
+  fetchRelease(): Promise<GithubRelease | null>
 }
 
 /** Keep all request behavior serializable, leaving Cordis wiring in index.ts. */
@@ -146,6 +148,16 @@ export class UpgradeController implements UpgradeApiController {
       return ''
     }
   }
+
+  /**
+   * Best-effort latest GitHub release for the tracked checkout. Returns null
+   * when no checkout is configured or the notes cannot be obtained; the client
+   * confirmation dialog degrades to its generic copy in that case.
+   */
+  async fetchRelease(): Promise<GithubRelease | null> {
+    if (this.config.repoDir === '') return null
+    return fetchLatestRelease(this.config.repoDir)
+  }
 }
 
 /** Register a single trusted prefix handler around an UpgradeApiController. */
@@ -167,6 +179,10 @@ export function createApiHandler(
       }
       if (route === 'check' && request.method === 'POST') {
         writeJson(response, 200, { ok: true, state: await controller.check() })
+        return
+      }
+      if (route === 'release' && request.method === 'GET') {
+        writeJson(response, 200, { ok: true, release: await controller.fetchRelease() })
         return
       }
       if (route === 'upgrade' && request.method === 'POST') {

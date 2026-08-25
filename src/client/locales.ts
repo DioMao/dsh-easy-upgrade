@@ -13,7 +13,15 @@ export type UpgradeLocaleKey =
   | 'railCheck'
   | 'railCheckFailed'
   | 'railUpgrade'
-  | 'matchedRepo'
+  | 'upgradeTitle'
+  | 'cancel'
+  | 'confirmUpgrade'
+  | 'versionChange'
+  | 'releaseNotesTitle'
+  | 'releaseNotesLoading'
+  | 'releaseNotesUnavailable'
+  | 'releaseNotesEmpty'
+  | 'releaseMeta'
 
 export const zh: Record<UpgradeLocaleKey, string> = {
   available: '有新版本，立即更新',
@@ -28,7 +36,15 @@ export const zh: Record<UpgradeLocaleKey, string> = {
   railCheck: '检查 DSH 更新（当前 {version}）',
   railCheckFailed: '检查失败：{message}',
   railUpgrade: '发现新版本，立即升级',
-  matchedRepo: '源码目录：{repo}',
+  upgradeTitle: '确认升级 DSH',
+  cancel: '取消',
+  confirmUpgrade: '确认升级',
+  versionChange: 'v{from} → v{to}',
+  releaseNotesTitle: '更新内容',
+  releaseNotesLoading: '正在获取 GitHub 更新说明…',
+  releaseNotesUnavailable: '未能获取 GitHub 更新说明，仍可继续升级。',
+  releaseNotesEmpty: '该版本没有发布说明。',
+  releaseMeta: '{tag} · {date}',
 }
 
 export const en: Record<UpgradeLocaleKey, string> = {
@@ -44,5 +60,13 @@ export const en: Record<UpgradeLocaleKey, string> = {
   railCheck: 'Check DSH updates (current {version})',
   railCheckFailed: 'Check failed: {message}',
   railUpgrade: 'New version available — upgrade now',
-  matchedRepo: 'Source: {repo}',
+  upgradeTitle: 'Confirm DSH upgrade',
+  cancel: 'Cancel',
+  confirmUpgrade: 'Upgrade now',
+  versionChange: 'v{from} → v{to}',
+  releaseNotesTitle: 'Release notes',
+  releaseNotesLoading: 'Fetching GitHub release notes…',
+  releaseNotesUnavailable: 'Could not fetch GitHub release notes. You can still continue with the upgrade.',
+  releaseNotesEmpty: 'This release has no notes.',
+  releaseMeta: '{tag} · {date}',
 }
