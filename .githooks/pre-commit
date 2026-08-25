@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# dsh-easy-upgrade pre-commit hook.
+#
+# Fast local checkpoints only; the full matrix is `pnpm lint` + `pnpm test`.
+# Install with:  git config core.hooksPath .githooks   (or: pnpm hooks:install)
+set -e
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+# 1) Commit-message lint (Conventional Commits).
+# git writes the edited message to .git/COMMIT_EDITMSG before running pre-commit.
+node "$root/.githooks/commitlint.mjs"
+
+# 2) Lint staged TypeScript sources with oxlint.
+# Resolve oxlint from PATH first, then fall back to the harness install used to
+# develop this package (see AGENTS.md); never require a local install.
+files="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|mts|cts)$' || true)"
+if [ -n "$files" ]; then
+  if command -v oxlint >/dev/null 2>&1; then
+    oxlint $files
+  else
+    /home/mao/deepseek-harness/node_modules/.bin/oxlint $files
+  fi
+fi
+
+# 3) Reject trailing whitespace / conflict markers in the staged diff.
+git diff --cached --check

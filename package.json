@@ -1,6 +1,6 @@
 {
   "name": "dsh-easy-upgrade",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH web plugin: check the local harness repo against origin/<branch> and one-click upgrade (stop dsh, reset --hard, install, build, restart). · DSH 一键升级：检查本地仓库与远程主分支差异，侧栏设置上方显示版本/更新按钮，点击一键升级并重启服务。",
   "type": "module",
   "main": "lib/index.js",
@@ -16,7 +16,15 @@
   ],
   "scripts": {
     "build": "rm -rf lib && /home/mao/deepseek-harness/node_modules/.bin/tsdown",
+    "lint": "/home/mao/deepseek-harness/node_modules/.bin/oxlint",
+    "test": "/home/mao/deepseek-harness/node_modules/.bin/vitest run",
+    "test:watch": "/home/mao/deepseek-harness/node_modules/.bin/vitest",
+    "hooks:install": "git config core.hooksPath .githooks",
     "typecheck": "echo 'Standalone package uses tsdown transpilation; profile-resolved types are checked by the bundle build.'"
+  },
+  "devDependencies": {
+    "oxlint": "^1.76.0",
+    "vitest": "^4.1.8"
   },
   "dsh": {
     "bundle": {
