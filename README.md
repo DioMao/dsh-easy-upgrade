@@ -41,20 +41,24 @@ DSH Web 插件：检查本地 deepseek-harness 源码仓库与 `origin/<branch>`
 ## 构建
 
 ```sh
-pnpm build
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm build
 ```
 
-构建使用本地 deepseek-harness checkout 的 tsdown `clientBundle`（与仓库的 client-plugin 产物保持一致），输出到 `lib/`。
+构建使用指定 deepseek-harness checkout 的 tsdown `clientBundle`（与仓库的 client-plugin 产物保持一致），输出到 `lib/`。`DSH_HARNESS_DIR` 必须指向一个已完成 `pnpm install --frozen-lockfile` 的 harness checkout；未设置时，为保持现有开发环境兼容，会回退到 `/home/mao/deepseek-harness`。
+
+构建脚本会在 harness 的 `packages/experimental/` 下短暂创建仅供 tsdown 读取的 workspace manifest，并在成功、失败或中断后清理它。若同名目录已存在，脚本会停止，绝不覆盖 harness 文件。
 
 ## 开发与规范
 
 开发工具（tsdown / oxlint / vitest）由本地 deepseek-harness checkout 提供，无需在本包安装依赖。
 
 ```sh
-pnpm lint            # oxlint（遵循 .oxlintrc.json）
-pnpm test            # vitest 单元测试
-pnpm test:watch      # vitest 监听模式
-pnpm hooks:install   # 安装 git 钩子：git config core.hooksPath .githooks
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm lint            # oxlint（遵循 .oxlintrc.json）
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm test            # vitest 单元测试
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm test:watch      # vitest 监听模式
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm build && pnpm test:bundle
+pnpm test:package     # 校验 npm 发布文件清单
+pnpm hooks:install    # 安装 git 钩子：git config core.hooksPath .githooks
 ```
 
 - **Commit 规范**：遵循 Conventional Commits（`<type>(<scope>): <subject>`，type 限
@@ -65,6 +69,12 @@ pnpm hooks:install   # 安装 git 钩子：git config core.hooksPath .githooks
 - **测试**：`pnpm test` 覆盖 `src/release-notes.ts`、`src/config.ts`、`src/state.ts`、
   `src/client/notes-markdown.ts` 与 `.githooks/commitlint.mjs`。
 - 更多开发约定见 `AGENTS.md`。
+
+## CI 与发布
+
+- `.github/workflows/pr-checks.yml` 在 pull request 和 `master` 推送时，使用固定的 DeepSeek Harness revision 执行冻结安装、lint、单元测试、真实 bundle 冒烟检查与 npm 打包检查。
+- `.github/workflows/release.yml` 只响应 `v*` tag，重复全部质量门禁，校验 tag 与 `package.json` 版本一致，并通过 npm Trusted Publishing（OIDC）发布带 provenance 的包。
+- 启用发布前，需在 npm 包设置中将 Trusted Publisher 设为仓库 `DioMao/dsh-easy-upgrade`、workflow `.github/workflows/release.yml`、环境 `npm`。工作流不读取或保存 npm token。
 
 ## 许可证
 

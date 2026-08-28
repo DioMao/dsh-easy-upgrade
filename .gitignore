@@ -4,8 +4,12 @@ lib/
 # Dependencies
 /node_modules
 
-# Standalone package has no install; pnpm auto-emits a lockfile when its scripts run.
+# Tooling is supplied by the selected DeepSeek Harness checkout; this package
+# deliberately has no independent dependency graph or lockfile.
 pnpm-lock.yaml
+
+# Local checks and package previews.
+.npm-cache/
 
 # Internal Aegis/dev tracking (not plugin source)
 docs/

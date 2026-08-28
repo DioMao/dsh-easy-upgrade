@@ -26,6 +26,8 @@ monorepo) and is installed into the DSH web profile via
 | `src/trust-fence.ts` | Same-origin / trusted-host gate for the API. |
 | `src/client/` | Browser half: `UpgradeCell` (sidebar footer action), locales, release-notes renderer, CSS module. |
 | `.githooks/` | Git hooks (commitlint + staged oxlint + whitespace). See **Commit conventions**. |
+| `scripts/` | Harness toolchain resolver, portable build wrapper, bundle and package smoke checks. |
+| `.github/workflows/` | PR quality gate and OIDC npm release workflow. |
 | `AGENTS.md`, `README.md`, `LICENSE`, `cordis.patch.yml`, `package.json` | Project metadata / config. |
 
 ## Quick start
@@ -35,17 +37,18 @@ install (the package has no `node_modules` of its own; `node_modules` is a
 symlink into the DSH profile store). Commands:
 
 ```sh
-pnpm build           # tsdown → lib/ (host index.js + client.js)
-pnpm lint            # oxlint (respects .oxlintrc.json)
-pnpm test            # vitest run (see vitest.config.ts)
-pnpm test:watch      # vitest watch
-pnpm hooks:install   # git config core.hooksPath .githooks
-pnpm typecheck       # placeholder: this package is transpiled, not type-checked
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm build  # tsdown → lib/ (host index.js + client.js)
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm lint   # oxlint (respects .oxlintrc.json)
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm test   # vitest run (see vitest.config.ts)
+DSH_HARNESS_DIR=/path/to/deepseek-harness pnpm test:watch
+pnpm test:bundle      # asserts the emitted host and client handoff artifacts
+pnpm test:package     # asserts the npm publish file list
+pnpm hooks:install    # git config core.hooksPath .githooks
 ```
 
-If the tool binaries are ever unavailable through PATH, they resolve from
-`/home/mao/deepseek-harness/node_modules/.bin` as a fallback (matching the
-hardcoded `build` script).
+`DSH_HARNESS_DIR` must identify an installed harness checkout. The scripts retain
+`/home/mao/deepseek-harness` only as a compatibility fallback for this checkout;
+CI always sets the variable to its pinned toolchain checkout.
 
 ## Architecture notes
 
@@ -129,7 +132,8 @@ code; keep business logic free of framework imports so it stays testable.
 
 `tsdown.config.ts` imports the harness client preset, which resolves the package
 manifest by globbing `packages/*/*/package.json` under the harness checkout and
-does **not** follow symlinks. Building therefore requires a temporary physical
-`package.json` at e.g. `<harness>/packages/experimental/dsh-easy-upgrade/package.json`
-(naming the plugin and carrying the `dsh.client.inject` list); run `pnpm build`,
-then delete the stub. Verify the harness `git status` is clean afterward.
+does **not** follow symlinks. `scripts/build.mjs` creates that physical manifest
+at `<harness>/packages/experimental/dsh-easy-upgrade/package.json` and removes the
+whole temporary directory in `finally`. It refuses to run when that directory
+already exists, so it cannot overwrite a harness package. Verify the harness
+git status is clean after diagnosing an interrupted build.

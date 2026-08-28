@@ -1,0 +1,65 @@
+name: PR Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  DSH_HARNESS_REF: cd5ef8148158c3a752a658978873241fdf8e2bbc
+
+jobs:
+  checks:
+    name: Lint, test, and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Check out the pinned DeepSeek Harness toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ env.DSH_HARNESS_REF }}
+          path: ${{ runner.temp }}/deepseek-harness
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: ${{ runner.temp }}/deepseek-harness/pnpm-lock.yaml
+
+      - name: Install harness dependencies
+        working-directory: ${{ runner.temp }}/deepseek-harness
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        env:
+          DSH_HARNESS_DIR: ${{ runner.temp }}/deepseek-harness
+        run: pnpm run lint
+
+      - name: Test
+        env:
+          DSH_HARNESS_DIR: ${{ runner.temp }}/deepseek-harness
+        run: pnpm test
+
+      - name: Build and smoke-test bundle
+        env:
+          DSH_HARNESS_DIR: ${{ runner.temp }}/deepseek-harness
+        run: pnpm run build && pnpm run test:bundle
+
+      - name: Verify npm package contents
+        run: pnpm run test:package

@@ -2,6 +2,14 @@
   "name": "dsh-easy-upgrade",
   "version": "0.2.2",
   "description": "DSH web plugin: check the local harness repo against origin/<branch> and one-click upgrade (stop dsh, reset --hard, install, build, restart). · DSH 一键升级：检查本地仓库与远程主分支差异，侧栏设置上方显示版本/更新按钮，点击一键升级并重启服务。",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DioMao/dsh-easy-upgrade.git"
+  },
+  "homepage": "https://github.com/DioMao/dsh-easy-upgrade#readme",
+  "bugs": {
+    "url": "https://github.com/DioMao/dsh-easy-upgrade/issues"
+  },
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -12,15 +20,20 @@
   },
   "files": [
     "lib",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf lib && /home/mao/deepseek-harness/node_modules/.bin/tsdown",
-    "lint": "/home/mao/deepseek-harness/node_modules/.bin/oxlint",
-    "test": "/home/mao/deepseek-harness/node_modules/.bin/vitest run",
-    "test:watch": "/home/mao/deepseek-harness/node_modules/.bin/vitest",
+    "build": "node scripts/build.mjs",
+    "lint": "node scripts/run-harness-bin.mjs oxlint",
+    "lint:fix": "node scripts/run-harness-bin.mjs oxlint --fix",
+    "test": "node scripts/run-harness-bin.mjs vitest run",
+    "test:watch": "node scripts/run-harness-bin.mjs vitest",
+    "test:bundle": "node scripts/bundle-smoke.mjs",
+    "test:package": "node scripts/package-smoke.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
-    "typecheck": "echo 'Standalone package uses tsdown transpilation; profile-resolved types are checked by the bundle build.'"
+    "typecheck": "echo 'Not available: this standalone package is transpiled against the selected DeepSeek Harness checkout.'"
   },
   "devDependencies": {
     "oxlint": "^1.76.0",
@@ -40,5 +53,16 @@
       "platform": "web"
     }
   },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugin",
+    "upgrade"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "packageManager": "pnpm@11.7.0",
   "license": "MIT"
 }
