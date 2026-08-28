@@ -8,7 +8,7 @@ if (name === undefined) throw new Error('Usage: node scripts/run-harness-bin.mjs
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const toolArgs = name === 'oxlint'
-  ? ['--config', resolve(root, '.oxlintrc.json'), '--disable-nested-config', ...args]
+  ? ['--config', resolve(root, '.oxlintrc.json'), '--disable-nested-config', ...args, 'src', 'scripts', '.githooks', 'tsdown.config.ts', 'vitest.config.ts']
   : args
 const result = spawnSync(resolveHarnessBin(name), toolArgs, {
   stdio: 'inherit',
