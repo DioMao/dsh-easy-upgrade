@@ -24,6 +24,8 @@ dsh plugin --profile web update dsh-easy-upgrade@latest
 
 插件会安全识别运行中 DSH 所使用的 DeepSeek Harness 源码 checkout。也可以在 profile 配置中显式设置 `repoDir`。
 
+仅当 DSH 从本地 DeepSeek Harness 源码 checkout 启动时，插件才提供 git 更新。npx 与已安装的构建不是更新目标。该流程适用于未修改的官方原版源码；对于修改过的源码或 fork，请谨慎使用，因为升级会将其重置到远程分支。
+
 ## 安全提示
 
 升级会拉取选定分支、停止 DSH、将源码重置到 `origin/<branch>`、安装依赖、构建，然后重新启动 DSH。升级失败时会尝试恢复之前的版本和依赖。

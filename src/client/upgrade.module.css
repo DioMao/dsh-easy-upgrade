@@ -28,6 +28,19 @@
   min-width: 0;
 }
 
+/* Source-checkout warning shown before a destructive update is confirmed. */
+.sourceWarning {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
 /* Heading row above the notes body: "更新内容" + release tag/date. */
 .notesHeader {
   display: flex;

@@ -24,6 +24,8 @@ The sidebar shows the installed revision or an available update. Select the upda
 
 The plugin safely identifies the DeepSeek Harness checkout used by the running DSH process. You can also set `repoDir` explicitly in the profile configuration.
 
+Git updates are available only when DSH is launched from a local DeepSeek Harness source checkout. npx and installed builds are not upgrade targets. This flow is intended for an unmodified official checkout; use caution with a modified checkout or fork because an upgrade resets it to its remote branch.
+
 ## Safety
 
 An upgrade fetches the selected branch, stops DSH, resets the checkout to `origin/<branch>`, installs dependencies, builds, and starts DSH again. A failed upgrade attempts to restore the previous revision and dependencies.

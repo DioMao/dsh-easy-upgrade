@@ -219,6 +219,7 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
             to: toVersion === null ? '—' : toVersion,
           })}
         </div>
+        <div className={css.sourceWarning}>{t('sourceWarning')}</div>
         <div className={css.notesHeader}>
           <span className={css.notesTitle}>{t('releaseNotesTitle')}</span>
           {release !== null && (

@@ -16,6 +16,7 @@ export type UpgradeLocaleKey =
   | 'upgradeTitle'
   | 'cancel'
   | 'confirmUpgrade'
+  | 'sourceWarning'
   | 'versionChange'
   | 'releaseNotesTitle'
   | 'releaseNotesLoading'
@@ -39,6 +40,7 @@ export const zh: Record<UpgradeLocaleKey, string> = {
   upgradeTitle: '确认升级 DSH',
   cancel: '取消',
   confirmUpgrade: '确认升级',
+    sourceWarning: '本插件适用于本地存在源码的官方原版 DSH checkout。若你修改过源码、使用 fork，或不确定工作区来源，请谨慎升级：升级会将源码重置到远程分支。',
   versionChange: 'v{from} → v{to}',
   releaseNotesTitle: '更新内容',
   releaseNotesLoading: '正在获取 GitHub 更新说明…',
@@ -63,6 +65,7 @@ export const en: Record<UpgradeLocaleKey, string> = {
   upgradeTitle: 'Confirm DSH upgrade',
   cancel: 'Cancel',
   confirmUpgrade: 'Upgrade now',
+    sourceWarning: 'This plugin is intended for an unmodified official DSH source checkout. If you changed the source, use a fork, or are unsure of the checkout origin, upgrade with caution: it resets the checkout to its remote branch.',
   versionChange: 'v{from} → v{to}',
   releaseNotesTitle: 'Release notes',
   releaseNotesLoading: 'Fetching GitHub release notes…',
