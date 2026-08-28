@@ -74,7 +74,7 @@ pnpm hooks:install    # 安装 git 钩子：git config core.hooksPath .githooks
 
 - `.github/workflows/pr-checks.yml` 在 pull request 和 `master` 推送时，使用固定的 DeepSeek Harness revision 执行冻结安装、lint、单元测试、真实 bundle 冒烟检查与 npm 打包检查。
 - `.github/workflows/release.yml` 只响应 `v*` tag，重复全部质量门禁，校验 tag 与 `package.json` 版本一致，并通过 npm Trusted Publishing（OIDC）发布带 provenance 的包。
-- 启用发布前，需在 npm 包设置中将 Trusted Publisher 设为仓库 `DioMao/dsh-easy-upgrade`、workflow `.github/workflows/release.yml`、环境 `npm`。工作流不读取或保存 npm token。
+- 启用发布前，需在 npm 的 Trusted Publisher 设置中将 GitHub repository 设为 `DioMao/dsh-easy-upgrade`、Workflow filename 设为 `release.yml`（仅文件名，不是 `.github/workflows/` 路径）、environment 设为 `npm`。这三个值区分大小写，且必须与工作流一致；工作流不读取或保存 npm token。
 
 ## 许可证
 
