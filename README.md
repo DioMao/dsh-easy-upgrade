@@ -11,7 +11,7 @@ DSH Web 插件：检查本地 deepseek-harness 源码仓库与 `origin/<branch>`
   - 匹配失败时不执行任何 git 操作，返回 `no-repo`，避免对任意目录调用 git。
 - 源码目录在 Web UI 中不展示（仅用于内部校验与升级流程），避免暴露本地路径细节。
 - 升级确认改为框架风格的自定义弹窗：点击“立即更新”后尝试获取 GitHub 最新发行版的更新说明并展示在弹窗中（含版本变化、发布标签/日期、warn 提示），确认后开始升级；获取失败时降级为通用提示，不阻塞升级。
-- 升级流程：`git fetch` → 停止当前 dsh → `git reset --hard origin/<branch>` → `pnpm install --frozen-lockfile` → `pnpm build` → 重启 dsh；失败时回滚至原版本并恢复依赖。
+- 升级流程：`git fetch` → 停止当前 dsh → `git reset --hard origin/<branch>` → `pnpm install --frozen-lockfile` → `pnpm clean` → `pnpm build` → 重启 dsh；失败时回滚至原版本并恢复依赖。
 - `upgrade.log` 自动裁剪（默认上限 15 MiB，可配置），避免日志无限增长。
 - 启动时清理上次进程遗留的 `upgrading` 标志，避免 UI 卡在“正在升级，服务即将重启…”。
 

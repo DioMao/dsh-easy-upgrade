@@ -210,6 +210,12 @@ async function main() {
     await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', 'origin/' + input.branch], input.repoDir, 120000)
     stage = 'install'
     await run('pnpm', ['install', '--frozen-lockfile'], input.repoDir, 20 * 60 * 1000, { CI: 'true' })
+    // The pnpm store keeps stale build output of the previous revision; clean
+    // it (harness 'pnpm clean', which removes repository-owned build state but
+    // preserves installed dependencies) so the build never picks up leftover
+    // artifacts after the hard reset.
+    stage = 'clean'
+    await run('pnpm', ['clean'], input.repoDir, 30 * 60 * 1000)
     stage = 'build'
     await run('pnpm', ['build'], input.repoDir, 30 * 60 * 1000)
     success = true
