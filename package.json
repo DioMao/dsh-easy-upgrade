@@ -1,6 +1,6 @@
 {
   "name": "dsh-easy-upgrade",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "DSH web plugin: check the local harness repo against origin/<branch> and one-click upgrade (stop dsh, reset --hard, install, build, restart). · DSH 一键升级：检查本地仓库与远程主分支差异，侧栏设置上方显示版本/更新按钮，点击一键升级并重启服务。",
   "repository": {
     "type": "git",
