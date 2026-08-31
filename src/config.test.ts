@@ -16,6 +16,14 @@ describe('resolveConfig', () => {
     expect(config.retryCount).toBe(3)
     expect(config.retryDelayMs).toBe(5000)
     expect(config.logMaxBytes).toBe(15 * 1024 * 1024)
+    expect(config.forceUpdateTest).toBe(false)
+  })
+
+  it('honors the forceUpdateTest development flag and ignores non-boolean values', () => {
+    expect(resolveConfig({ forceUpdateTest: true }).forceUpdateTest).toBe(true)
+    expect(resolveConfig({ forceUpdateTest: false }).forceUpdateTest).toBe(false)
+    expect(resolveConfig({ forceUpdateTest: 'yes' }).forceUpdateTest).toBe(false)
+    expect(resolveConfig({ forceUpdateTest: 1 }).forceUpdateTest).toBe(false)
   })
 
   it('defaults stateDir under DSH_HOME', () => {

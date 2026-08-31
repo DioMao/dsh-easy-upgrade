@@ -1,16 +1,24 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import type { UpgradeConfig } from './config.js'
 import { checkForUpdate, currentHead, worktreeIsClean } from './git.js'
 import { fetchLatestRelease, type GithubRelease } from './release-notes.js'
 import type { LaunchSpec, StateStore, UpgradeState } from './state.js'
-import { launchUpgradeRunner } from './upgrade-runner.js'
+import { launchUpgradeRunner, pickLoopbackPort } from './upgrade-runner.js'
 
 export interface UpgradeApiController {
   status(): Promise<UpgradeState>
   check(): Promise<UpgradeState>
-  beginUpgrade(): Promise<void>
+  beginUpgrade(options?: { rollbackOnFailure?: boolean }): Promise<void>
   tailLog(): Promise<string>
   fetchRelease(): Promise<GithubRelease | null>
+  /** Mirror of the row config so the browser can show the development-mode entry. */
+  forceUpdateTest: boolean
+}
+
+/** An upgrade is allowed when behind the remote, or in development-forced mode. */
+export function upgradeAllowed(behind: number, forceUpdateTest: boolean): boolean {
+  return behind > 0 || forceUpdateTest
 }
 
 /** Keep all request behavior serializable, leaving Cordis wiring in index.ts. */
@@ -32,6 +40,11 @@ export class UpgradeController implements UpgradeApiController {
   /** Report the install shape resolved at boot (see src/index.ts detection). */
   setInstall(kind: UpgradeState['installKind'], repoDir: string | null): void {
     this.install = { kind, repoDir }
+  }
+
+  /** Development-only escape hatch; see UpgradeConfig.forceUpdateTest. */
+  get forceUpdateTest(): boolean {
+    return this.config.forceUpdateTest
   }
 
   async status(): Promise<UpgradeState> {
@@ -100,7 +113,7 @@ export class UpgradeController implements UpgradeApiController {
     throw finalError ?? new Error(next.lastCheckError ?? 'update check failed')
   }
 
-  async beginUpgrade(): Promise<void> {
+  async beginUpgrade(options?: { rollbackOnFailure?: boolean }): Promise<void> {
     if (this.config.repoDir === '') {
       throw new UpgradeApiError(409, 'no-repo', '未能匹配 DSH 源码仓库，无法升级。请显式配置 repoDir 或从源码目录启动 dsh。')
     }
@@ -111,14 +124,27 @@ export class UpgradeController implements UpgradeApiController {
     }
     const checked = await this.check()
     const remote = checked.status
-    if (remote === null || remote.behind <= 0) {
+    if (remote === null) {
+      throw new UpgradeApiError(409, 'no-check-result', '更新检查没有可用结果，无法升级。')
+    }
+    if (!upgradeAllowed(remote.behind, this.config.forceUpdateTest)) {
       throw new UpgradeApiError(409, 'up-to-date', '当前已是远程主分支的最新版本。')
     }
     const oldHead = await currentHead(this.config.repoDir)
     // Start the new upgrade from a bounded log so a fresh run is not appended
     // to unbounded prior content.
     await this.store.trimLog(this.config.logMaxBytes)
-    const next: UpgradeState = { ...checked, upgrading: true, lastCheckError: null }
+    // Reserve the detached progress server's loopback port and token here, in
+    // the still-alive host, so the browser can learn the address from /status
+    // before the runner stops this process.
+    const port = await pickLoopbackPort()
+    const token = randomBytes(24).toString('hex')
+    const next: UpgradeState = {
+      ...checked,
+      upgrading: true,
+      progress: { port, token, startedAt: new Date().toISOString() },
+      lastCheckError: null,
+    }
     await this.store.write(next)
     this.current = next
     try {
@@ -129,9 +155,13 @@ export class UpgradeController implements UpgradeApiController {
         newHead: remote.remoteSha,
         targetPid: process.pid,
         launch: this.launch,
+      }, {
+        progressPort: port,
+        progressToken: token,
+        rollbackOnFailure: options?.rollbackOnFailure === true,
       })
     } catch (error) {
-      const failed: UpgradeState = { ...next, upgrading: false, lastCheckError: error instanceof Error ? error.message : String(error) }
+      const failed: UpgradeState = { ...next, upgrading: false, progress: null, lastCheckError: error instanceof Error ? error.message : String(error) }
       await this.store.write(failed)
       this.current = failed
       throw error
@@ -174,11 +204,11 @@ export function createApiHandler(
     const route = pathname.startsWith('/dsh-upgrade/api/') ? pathname.slice('/dsh-upgrade/api/'.length) : ''
     try {
       if (route === 'status' && request.method === 'GET') {
-        writeJson(response, 200, { ok: true, state: await controller.status() })
+        writeJson(response, 200, { ok: true, state: await controller.status(), forceUpdateTest: controller.forceUpdateTest })
         return
       }
       if (route === 'check' && request.method === 'POST') {
-        writeJson(response, 200, { ok: true, state: await controller.check() })
+        writeJson(response, 200, { ok: true, state: await controller.check(), forceUpdateTest: controller.forceUpdateTest })
         return
       }
       if (route === 'release' && request.method === 'GET') {
@@ -186,7 +216,18 @@ export function createApiHandler(
         return
       }
       if (route === 'upgrade' && request.method === 'POST') {
-        await controller.beginUpgrade()
+        const raw = await readBody(request, 16 * 1024)
+        let rollbackOnFailure = false
+        if (raw.trim() !== '') {
+          let parsed: { rollbackOnFailure?: unknown }
+          try {
+            parsed = JSON.parse(raw) as { rollbackOnFailure?: unknown }
+          } catch {
+            throw new UpgradeApiError(400, 'bad-body', 'upgrade request body must be JSON')
+          }
+          if (typeof parsed.rollbackOnFailure === 'boolean') rollbackOnFailure = parsed.rollbackOnFailure
+        }
+        await controller.beginUpgrade({ rollbackOnFailure })
         writeJson(response, 202, { ok: true, started: true })
         return
       }
@@ -219,6 +260,19 @@ function writeJson(response: ServerResponse, status: number, payload: unknown): 
     'content-length': Buffer.byteLength(body),
   })
   response.end(body)
+}
+
+/** Read a request body, bounded so a malformed client cannot exhaust memory. */
+async function readBody(request: IncomingMessage, maxBytes: number): Promise<string> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of request) {
+    const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+    size += buffer.length
+    if (size > maxBytes) throw new UpgradeApiError(413, 'payload-too-large', 'request body too large')
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
 function delay(milliseconds: number): Promise<void> {

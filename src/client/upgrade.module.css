@@ -177,3 +177,90 @@
   border: none;
   border-top: 1px solid var(--dsw-alias-border-l1);
 }
+
+/* Spin animation for the loading icon shown while an upgrade runs. */
+.spinner {
+  flex: none;
+  animation: dshUpgradeSpin 1s linear infinite;
+}
+
+@keyframes dshUpgradeSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Live progress row: spinner + stage label + log toggle. */
+.progressText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.logToggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.logToggle:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Expandable log surface under the progress row while the service is down. */
+.logPanel {
+  margin-top: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Failure-rollback option inside the confirmation dialog. */
+.rollbackOption {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.rollbackLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.rollbackHint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}

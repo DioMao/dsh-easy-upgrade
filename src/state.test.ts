@@ -75,6 +75,50 @@ describe('StateStore', () => {
     }
   })
 
+  it('round-trips per-run progress and rollback result fields', async () => {
+    const { store, dir } = await tempStore()
+    try {
+      await store.write({
+        checkedAt: '2026-01-01T00:00:00Z',
+        status,
+        lastCheckError: null,
+        upgrading: true,
+        lastUpgrade: null,
+        progress: { port: 43210, token: 'abc123', startedAt: '2026-01-01T00:00:01Z' },
+        installKind: 'source',
+        repoDir: '/tmp/repo',
+      })
+      const inFlight = await store.read()
+      expect(inFlight.upgrading).toBe(true)
+      expect(inFlight.progress).toEqual({ port: 43210, token: 'abc123', startedAt: '2026-01-01T00:00:01Z' })
+      await store.write({
+        ...inFlight,
+        upgrading: false,
+        progress: null,
+        lastUpgrade: { ok: false, at: '2026-01-01T00:05:00Z', from: 'a'.repeat(40), to: 'b'.repeat(40), stage: 'build', error: 'boom', rolledBack: true, rollbackStage: null },
+      })
+      const settled = await store.read()
+      expect(settled.upgrading).toBe(false)
+      expect(settled.progress).toBeNull()
+      expect(settled.lastUpgrade?.rolledBack).toBe(true)
+      expect(settled.lastUpgrade?.rollbackStage).toBeNull()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('drops a malformed persisted progress address', async () => {
+    const { store, dir } = await tempStore()
+    try {
+      await writeFile(join(dir, 'state.json'), JSON.stringify({ upgrading: true, progress: { port: 'nope', token: '' } }), 'utf8')
+      const state = await store.read()
+      expect(state.upgrading).toBe(true)
+      expect(state.progress).toBeNull()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('trims an over-cap log and returns true', async () => {
     const { store, dir } = await tempStore()
     try {

@@ -11,6 +11,12 @@
 # `repoDir` is intentionally unset: the plugin auto-matches the running dsh to
 # its deepseek-harness source checkout at boot (src/detect.ts). Set it here
 # only to pin a different checkout explicitly.
+#
+# `forceUpdateTest` (default false) is a development escape hatch: when a dev
+# profile patch sets it to true, the "already up to date" guard is skipped so
+# the full reset/install/clean/build/restart flow can be rerun any time. It is
+# intentionally NOT enabled in this shipped patch; override it in the profile's
+# own cordis.patch.yml, never for production users.
 - insert:
     - id: dsh-easy-upgrade
       name: 'dsh-easy-upgrade'
@@ -20,3 +26,4 @@
         retryCount: 3
         retryDelayMs: 5000
         stateDir: ''
+        forceUpdateTest: false

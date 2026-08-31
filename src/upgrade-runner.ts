@@ -1,6 +1,8 @@
 import { closeSync, openSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import type { UpgradeConfig } from './config.js'
+import { UPGRADE_STAGE } from './progress.js'
 import { platformKind, spawn, stopUpgradeTarget } from './proc.js'
 import type { LaunchSpec, StateStore } from './state.js'
 
@@ -13,12 +15,46 @@ export interface UpgradeLaunch {
   launch: LaunchSpec
 }
 
+/** Per-run options handed to the detached runner and exposed to the browser. */
+export interface UpgradeOptions {
+  /** Loopback port of the runner's live progress server; 0 disables it. */
+  progressPort: number
+  /** Random token the progress server demands on every request. */
+  progressToken: string
+  /** On failure after DSH is stopped, restore oldHead and rebuild fully. */
+  rollbackOnFailure: boolean
+}
+
+/**
+ * Reserve a free loopback port for the detached progress server. The port can
+ * be taken between closing the probe and the runner binding it; the runner
+ * degrades gracefully (no progress server) in that rare case.
+ */
+export async function pickLoopbackPort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = server.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  await new Promise<void>(resolve => {
+    server.close(() => resolve())
+  })
+  return port
+}
+
 /**
  * Start an independent Node process that waits for the HTTP response, stops the
  * current DSH process, resets to origin/<branch>, builds, and launches the
  * exact command captured when this plugin activated.
  */
-export async function launchUpgradeRunner(store: StateStore, config: UpgradeConfig, launch: UpgradeLaunch): Promise<void> {
+export async function launchUpgradeRunner(
+  store: StateStore,
+  config: UpgradeConfig,
+  launch: UpgradeLaunch,
+  options: UpgradeOptions,
+): Promise<void> {
   await store.ensure()
   await writeFile(store.runnerPath, RUNNER_SOURCE, { mode: 0o700 })
   const logFd = openSync(store.logPath, 'a', 0o600)
@@ -33,6 +69,7 @@ export async function launchUpgradeRunner(store: StateStore, config: UpgradeConf
       logPath: store.logPath,
       stop,
       config: { repoDir: config.repoDir, branch: config.branch, logMaxBytes: config.logMaxBytes },
+      ...options,
     })], {
       detached: true,
       stdio: ['ignore', logFd, logFd],
@@ -47,7 +84,8 @@ export async function launchUpgradeRunner(store: StateStore, config: UpgradeConf
 /* The runner deliberately has no imports from this plugin. It remains viable
  * after the parent process is terminated and while the target checkout is being
  * reset and rebuilt. Its argument is lossless JSON written by launchUpgradeRunner. */
-const RUNNER_SOURCE = String.raw`import { appendFileSync, closeSync, openSync, readFileSync, renameSync, statSync, truncateSync, readSync, writeFileSync, writeSync } from 'node:fs'
+export const RUNNER_SOURCE = String.raw`import { appendFileSync, closeSync, openSync, readFileSync, renameSync, statSync, truncateSync, readSync, writeFileSync, writeSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 
 const inputRaw = process.argv[2] ?? ''
@@ -61,6 +99,26 @@ const statePath = input.statePath
 const logPath = input.logPath
 const now = () => new Date().toISOString()
 const logMaxBytes = Number.isFinite(input.logMaxBytes) && input.logMaxBytes > 0 ? input.logMaxBytes : 15 * 1024 * 1024
+
+// Stage ids interpolated from src/progress.ts so the detached process reports
+// exactly the ids the browser client knows how to label.
+const STAGE = ${JSON.stringify(UPGRADE_STAGE)}
+
+// Live progress state served by the loopback HTTP endpoint below. It exists
+// only in memory: the runner dies with the server when the upgrade ends.
+let currentPhase = 'upgrading'
+let currentStage = null
+const startedAt = now()
+let finishedAt = null
+
+const progressPort = Number.isInteger(input.progressPort) && input.progressPort > 0 ? input.progressPort : 0
+const progressToken = typeof input.progressToken === 'string' ? input.progressToken : ''
+const rollbackOnFailure = input.rollbackOnFailure === true
+
+const setStage = (stage) => {
+  currentStage = stage
+  log('stage: ' + stage)
+}
 
 function currentLogSize() {
   try {
@@ -115,6 +173,85 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 // field is absent (e.g. a runner written by an older plugin).
 const stop = input.stop || { mode: 'signal' }
 
+function progressTail() {
+  let tail = ''
+  try {
+    if (!logPath) return tail
+    const size = statSync(logPath).size
+    const keep = Math.min(size, 64 * 1024)
+    if (keep <= 0) return tail
+    const fd = openSync(logPath, 'r')
+    try {
+      const buffer = Buffer.allocUnsafe(keep)
+      const { bytesRead } = readSync(fd, buffer, 0, keep, size - keep)
+      tail = buffer.subarray(0, bytesRead).toString('utf8')
+    } finally { closeSync(fd) }
+  } catch {}
+  return tail
+}
+
+// Loopback-only live progress service: the browser page reads /progress and
+// /log here while the DSH web server itself is stopped by the upgrade. A
+// random per-run token gates every request; CORS lets the DSH origin page
+// reach a different loopback port, and the private-network header covers
+// older Chromium clients when the DSH web server is bound to all interfaces.
+function startProgressServer() {
+  if (!progressPort || !progressToken) return
+  const server = createServer((request, response) => {
+    const url = new URL(request.url || '/', 'http://127.0.0.1')
+    if (url.searchParams.get('token') !== progressToken) {
+      response.writeHead(403)
+      response.end()
+      return
+    }
+    const cors = {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, OPTIONS',
+      'access-control-allow-headers': 'content-type',
+      'access-control-allow-private-network': 'true',
+    }
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, cors)
+      response.end()
+      return
+    }
+    if (request.method !== 'GET') {
+      response.writeHead(405)
+      response.end()
+      return
+    }
+    if (url.pathname === '/progress') {
+      response.writeHead(200, { ...cors, 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({
+        ok: true,
+        progress: {
+          phase: currentPhase,
+          stage: currentStage,
+          startedAt,
+          finishedAt,
+          from: input.oldHead || null,
+          to: input.newHead || null,
+        },
+      }))
+      return
+    }
+    if (url.pathname === '/log') {
+      response.writeHead(200, { ...cors, 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, log: progressTail() }))
+      return
+    }
+    response.writeHead(404)
+    response.end()
+  })
+  server.on('error', (error) => {
+    log('progress server failed: ' + (error && error.message ? error.message : String(error)))
+  })
+  server.listen(progressPort, '127.0.0.1', () => {
+    log('progress server listening on 127.0.0.1:' + progressPort)
+  })
+}
+startProgressServer()
+
 // Spawn wrapper for the dependency-free runner. On Windows a bare command may
 // be a .cmd/.bat shim (pnpm); CreateProcess cannot launch those directly, so
 // shell mode routes them through cmd.exe and quotes arguments — the runner
@@ -133,6 +270,8 @@ function writeState(result) {
   const state = {
     ...previous,
     upgrading: false,
+    // The progress server address is per-run; never let a stale one survive.
+    progress: null,
     lastUpgrade: result,
   }
   if (!statePath) return
@@ -229,54 +368,98 @@ async function main() {
     }
     // Fetch FIRST, while DSH is still running, so a network/remote failure
     // never takes the service down. Only once the fetch succeeds do we stop.
-    stage = 'fetch'
+    stage = STAGE.FETCH
+    setStage(stage)
     await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'fetch', 'origin', input.branch], input.repoDir, 120000)
     // The route has already returned 202; let the browser receive it before
     // the owning DSH process disappears.
     await sleep(2000)
-    stage = 'stop-current-dsh'
+    stage = STAGE.STOP_CURRENT_DSH
+    setStage(stage)
     await stopCurrent()
     stopped = true
-    stage = 'reset'
+    stage = STAGE.RESET
+    setStage(stage)
     await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', 'origin/' + input.branch], input.repoDir, 120000)
-    stage = 'install'
+    stage = STAGE.INSTALL
+    setStage(stage)
     await run('pnpm', ['install', '--frozen-lockfile'], input.repoDir, 20 * 60 * 1000, { CI: 'true' })
     // The pnpm store keeps stale build output of the previous revision; clean
     // it (harness 'pnpm clean', which removes repository-owned build state but
     // preserves installed dependencies) so the build never picks up leftover
     // artifacts after the hard reset.
-    stage = 'clean'
+    stage = STAGE.CLEAN
+    setStage(stage)
     await run('pnpm', ['clean'], input.repoDir, 30 * 60 * 1000)
-    stage = 'build'
+    stage = STAGE.BUILD
+    setStage(stage)
     await run('pnpm', ['build'], input.repoDir, 30 * 60 * 1000)
     success = true
+    currentPhase = 'done'
+    finishedAt = now()
     writeState({ ok: true, at: now(), from: input.oldHead, to: input.newHead })
     log('upgrade completed from ' + input.oldHead + ' to ' + input.newHead)
   } catch (error) {
     errorText = error instanceof Error ? error.message : String(error)
+    currentPhase = 'failed'
+    finishedAt = now()
     log('upgrade failed during ' + stage + ': ' + errorText)
+    let rolledBack
+    let rollbackStage
     if (stopped) {
-      // DSH was stopped and the checkout may be partially updated. Restore the
-      // known running revision AND its dependencies so the old service is not
-      // launched against a partial tree. Any rollback error is logged but must
-      // not prevent the restart attempt.
-      try {
-        await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', input.oldHead], input.repoDir, 120000)
-        log('restored previous revision ' + input.oldHead)
-      } catch (rollbackError) {
-        log('rollback (reset) failed: ' + (rollbackError instanceof Error ? rollbackError.message : String(rollbackError)))
-      }
-      try {
-        await run('pnpm', ['install', '--frozen-lockfile'], input.repoDir, 20 * 60 * 1000, { CI: 'true' })
-        log('restored dependencies at previous revision')
-      } catch (installError) {
-        log('rollback (pnpm install) failed: ' + (installError instanceof Error ? installError.message : String(installError)))
+      if (rollbackOnFailure) {
+        // Full rollback: restore the known running revision and re-run the
+        // entire build pipeline so the old service is launched from a
+        // consistent tree. Any rollback error is logged but must never prevent
+        // the restart attempt; rolledBack records whether every step succeeded.
+        currentPhase = 'rollback'
+        rolledBack = true
+        const steps = [
+          { stage: STAGE.ROLLBACK_RESET, command: 'git', args: ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', input.oldHead], timeoutMs: 120000, okMessage: 'restored previous revision ' + input.oldHead },
+          { stage: STAGE.ROLLBACK_INSTALL, command: 'pnpm', args: ['install', '--frozen-lockfile'], timeoutMs: 20 * 60 * 1000, okMessage: 'restored dependencies at previous revision' },
+          { stage: STAGE.ROLLBACK_CLEAN, command: 'pnpm', args: ['clean'], timeoutMs: 30 * 60 * 1000, okMessage: 'cleaned build state at previous revision' },
+          { stage: STAGE.ROLLBACK_BUILD, command: 'pnpm', args: ['build'], timeoutMs: 30 * 60 * 1000, okMessage: 'rebuilt previous revision' },
+        ]
+        for (const step of steps) {
+          try {
+            setStage(step.stage)
+            await run(step.command, step.args, input.repoDir, step.timeoutMs, { CI: 'true' })
+            log('rollback: ' + step.okMessage)
+          } catch (rollbackError) {
+            rolledBack = false
+            rollbackStage = step.stage
+            log('rollback (' + step.stage + ') failed: ' + (rollbackError instanceof Error ? rollbackError.message : String(rollbackError)))
+          }
+        }
+      } else {
+        // Light restore path (default): DSH was stopped and the checkout may be
+        // partially updated. Restore the known running revision AND its
+        // dependencies so the old service is not launched against a partial
+        // tree. Any rollback error is logged but must not prevent the restart.
+        try {
+          await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', input.oldHead], input.repoDir, 120000)
+          log('restored previous revision ' + input.oldHead)
+        } catch (rollbackError) {
+          log('rollback (reset) failed: ' + (rollbackError instanceof Error ? rollbackError.message : String(rollbackError)))
+        }
+        try {
+          await run('pnpm', ['install', '--frozen-lockfile'], input.repoDir, 20 * 60 * 1000, { CI: 'true' })
+          log('restored dependencies at previous revision')
+        } catch (installError) {
+          log('rollback (pnpm install) failed: ' + (installError instanceof Error ? installError.message : String(installError)))
+        }
       }
     }
-    writeState({ ok: false, at: now(), from: input.oldHead || null, to: input.newHead || null, stage, error: errorText })
+    const result = { ok: false, at: now(), from: input.oldHead || null, to: input.newHead || null, stage, error: errorText }
+    if (rolledBack !== undefined) {
+      result.rolledBack = rolledBack
+      result.rollbackStage = rollbackStage ?? null
+    }
+    writeState(result)
   } finally {
     if (stopped) {
       try {
+        setStage(STAGE.RESTART)
         restart()
       } catch (restartError) {
         log('restart failed: ' + (restartError instanceof Error ? restartError.message : String(restartError)))

@@ -43,6 +43,30 @@ Set plugin options in the web profile's `cordis.patch.yml` when defaults are not
 | `checkIntervalMs` | Automatic update-check interval. | `3600000` (1 hour) |
 | `stateDir` | State and upgrade-log directory. | `~/.dsh/dsh-easy-upgrade` |
 | `logMaxBytes` | Maximum size of the upgrade log. | `15728640` (15 MiB) |
+| `forceUpdateTest` | **Development only.** Skip the "already up to date" guard so the full upgrade flow can be rerun at any time. | `false` |
+
+### Development drill mode (`forceUpdateTest`)
+
+```yaml
+# web profile ~/.dsh/profiles/web/cordis.patch.yml (not this package's patch)
+- id: dsh-easy-upgrade
+  config:
+    forceUpdateTest: true
+```
+
+With this option enabled, the sidebar shows the upgrade entry even when the local
+checkout already matches `origin/<branch>`, and confirming it runs the complete
+flow: fetch, stop DSH, `git reset --hard origin/<branch>`, `pnpm install`,
+`pnpm clean`, `pnpm build`, and restart. This lets you exercise the full upgrade
+(and the opt-in failure rollback) repeatedly without waiting for upstream
+commits. It is intended for a development profile only — never enable it for
+production users, and remember the confirmation dialog explains that the
+operation is irreversible.
+
+> Profile `config` overrides **replace** the whole config block (they are not
+> deep-merged), so repeat the keys you need — `branch`, `checkIntervalMs`,
+> `retryCount`, `retryDelayMs`, `stateDir` — alongside `forceUpdateTest` in the
+> dev profile patch.
 
 ## License
 

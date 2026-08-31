@@ -10,6 +10,7 @@ export interface UpgradeConfigInput {
   retryDelayMs?: unknown
   stateDir?: unknown
   logMaxBytes?: unknown
+  forceUpdateTest?: unknown
 }
 
 /** Normalized, safe configuration used internally. */
@@ -27,6 +28,14 @@ export interface UpgradeConfig {
   retryDelayMs: number
   stateDir: string
   logMaxBytes: number
+  /**
+   * Development escape hatch. When true, the upgrade flow skips the
+   * "already up to date" guard so a full reset/install/clean/build/restart can
+   * be exercised repeatedly against origin/<branch>, even when the local
+   * checkout already matches it. Disabled by default; enable only in a dev
+   * profile patch, never for production users.
+   */
+  forceUpdateTest: boolean
 }
 
 /**
@@ -50,6 +59,10 @@ function positiveInteger(value: unknown, fallback: number, min: number, max: num
     : fallback
 }
 
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
 /** Resolve row config while putting upper bounds around retry and timer values. */
 export function resolveConfig(input: UpgradeConfigInput | undefined): UpgradeConfig {
   const dshHome = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
@@ -61,5 +74,6 @@ export function resolveConfig(input: UpgradeConfigInput | undefined): UpgradeCon
     retryDelayMs: positiveInteger(input?.retryDelayMs, DEFAULT_RETRY_DELAY, 1_000, 60_000),
     stateDir: stringValue(input?.stateDir, join(dshHome, 'dsh-easy-upgrade')),
     logMaxBytes: positiveInteger(input?.logMaxBytes, DEFAULT_LOG_MAX_BYTES, 1024 * 1024, 1024 * 1024 * 1024),
+    forceUpdateTest: booleanValue(input?.forceUpdateTest, false),
   }
 }

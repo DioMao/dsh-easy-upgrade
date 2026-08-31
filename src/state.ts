@@ -9,6 +9,17 @@ export interface UpgradeResult {
   to: string | null
   stage?: string
   error?: string
+  /** True when the failure-triggered rollback ran and every rollback step succeeded. */
+  rolledBack?: boolean
+  /** Rollback step that failed; present when a rollback was attempted but not fully completed. */
+  rollbackStage?: string | null
+}
+
+/** Browser-facing address of the detached runner's real-time progress server. */
+export interface UpgradeProgress {
+  port: number
+  token: string
+  startedAt: string
 }
 
 export interface UpgradeState {
@@ -17,6 +28,8 @@ export interface UpgradeState {
   lastCheckError: string | null
   upgrading: boolean
   lastUpgrade: UpgradeResult | null
+  /** Progress server address for the ongoing upgrade; null while idle. */
+  progress: UpgradeProgress | null
   /** Install shape the status consumed: 'source' when a checkout was matched (or configured); 'unknown'/'', see read(). */
   installKind: '' | 'source' | 'unknown'
   /** Matched deepseek-harness checkout root; null when unknown or unconfigured. */
@@ -35,6 +48,7 @@ const EMPTY_STATE: UpgradeState = {
   lastCheckError: null,
   upgrading: false,
   lastUpgrade: null,
+  progress: null,
   installKind: '',
   repoDir: null,
 }
@@ -66,6 +80,7 @@ export class StateStore {
         lastCheckError: typeof parsed.lastCheckError === 'string' ? parsed.lastCheckError : null,
         upgrading: parsed.upgrading === true,
         lastUpgrade: validUpgradeResult(parsed.lastUpgrade) ? parsed.lastUpgrade : null,
+        progress: validProgress(parsed.progress) ? parsed.progress : null,
         installKind: parsed.installKind === 'source' || parsed.installKind === 'unknown' ? parsed.installKind : '',
         repoDir: typeof parsed.repoDir === 'string' ? parsed.repoDir : null,
       }
@@ -151,4 +166,18 @@ function validUpgradeResult(value: unknown): value is UpgradeResult {
     && typeof candidate.at === 'string'
     && (candidate.from === null || typeof candidate.from === 'string')
     && (candidate.to === null || typeof candidate.to === 'string')
+    && (candidate.rolledBack === undefined || typeof candidate.rolledBack === 'boolean')
+    && (candidate.rollbackStage === undefined || candidate.rollbackStage === null || typeof candidate.rollbackStage === 'string')
+}
+
+function validProgress(value: unknown): value is UpgradeProgress {
+  if (value === null || typeof value !== 'object') return false
+  const candidate = value as Partial<UpgradeProgress>
+  return typeof candidate.port === 'number'
+    && Number.isInteger(candidate.port)
+    && candidate.port > 0
+    && candidate.port <= 65535
+    && typeof candidate.token === 'string'
+    && candidate.token.length > 0
+    && typeof candidate.startedAt === 'string'
 }

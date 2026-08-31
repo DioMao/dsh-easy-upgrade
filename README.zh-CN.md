@@ -43,6 +43,20 @@ dsh plugin --profile web update dsh-easy-upgrade@latest
 | `checkIntervalMs` | 自动检查更新的间隔。 | `3600000`（1 小时） |
 | `stateDir` | 状态与升级日志目录。 | `~/.dsh/dsh-easy-upgrade` |
 | `logMaxBytes` | 升级日志最大大小。 | `15728640`（15 MiB） |
+| `forceUpdateTest` | **仅限开发。** 跳过「已是最新」拦截，随时可重跑完整升级流程。 | `false` |
+
+### 开发演练模式（`forceUpdateTest`）
+
+```yaml
+# web profile 的 ~/.dsh/profiles/web/cordis.patch.yml（不是本包的 patch）
+- id: dsh-easy-upgrade
+  config:
+    forceUpdateTest: true
+```
+
+开启后，即使本地 checkout 已经与 `origin/<branch>` 一致，侧栏也会显示升级入口；确认后将执行完整流程：拉取、停止 DSH、`git reset --hard origin/<branch>`、`pnpm install`、`pnpm clean`、`pnpm build`、重启。这样无需等待上游提交即可反复演练完整升级（以及可选的失败回滚）。此选项仅供开发 profile 使用——切勿面向生产用户开启，确认弹窗也会明确提示该操作不可逆。
+
+> 注意：profile 的 `config` 覆盖是**整段替换**（不是深合并），请在开发 profile 的 patch 中把需要的键（`branch`、`checkIntervalMs`、`retryCount`、`retryDelayMs`、`stateDir`）与 `forceUpdateTest` 一起写上。
 
 ## 许可证
 
