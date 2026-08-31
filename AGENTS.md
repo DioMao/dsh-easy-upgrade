@@ -20,8 +20,9 @@ monorepo) and is installed into the DSH web profile via
 | `src/config.ts` | Cordis-row config normalization with safety bounds. |
 | `src/detect.ts` | Resolve the running dsh entry script and match it to a source checkout. |
 | `src/git.ts` | Thin `git` command wrappers (fetch, status, divergence, origin URL). |
+| `src/proc.ts` | Host-side platform adapter: `cross-spawn` for launching, `stopUpgradeTarget` decides Windows `taskkill /T /F` tree-kill vs POSIX signals. |
 | `src/state.ts` | `StateStore` owning `~/.dsh/dsh-easy-upgrade/{state.json,launch.json,upgrade.log,upgrade-runner.mjs}`. |
-| `src/upgrade-runner.ts` | Detached Node runner that stops DSH, resets, installs, builds, restarts, rolls back. |
+| `src/upgrade-runner.ts` | Detached Node runner that stops DSH, resets, installs, builds, restarts, rolls back. The runnable source (inline string) mirrors `src/proc.ts` decisions without importing it. |
 | `src/release-notes.ts` | Best-effort GitHub latest-release fetch for the confirm dialog. |
 | `src/trust-fence.ts` | Same-origin / trusted-host gate for the API. |
 | `src/client/` | Browser half: `UpgradeCell` (sidebar footer action), locales, release-notes renderer, CSS module. |

@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { spawn } from './proc.js'
 
 /** A machine-readable failure while invoking git. */
 export class GitCommandError extends Error {

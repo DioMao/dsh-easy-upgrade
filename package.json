@@ -36,6 +36,7 @@
     "typecheck": "echo 'Not available: this standalone package is transpiled against the selected DeepSeek Harness checkout.'"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "oxlint": "^1.76.0",
     "vitest": "^4.1.8"
   },
@@ -64,5 +65,8 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "packageManager": "pnpm@11.7.0",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "cross-spawn": "^7.0.6"
+  }
 }

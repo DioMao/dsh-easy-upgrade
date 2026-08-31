@@ -1,7 +1,7 @@
 import { closeSync, openSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { spawn } from 'node:child_process'
 import type { UpgradeConfig } from './config.js'
+import { platformKind, spawn, stopUpgradeTarget } from './proc.js'
 import type { LaunchSpec, StateStore } from './state.js'
 
 export interface UpgradeLaunch {
@@ -23,10 +23,15 @@ export async function launchUpgradeRunner(store: StateStore, config: UpgradeConf
   await writeFile(store.runnerPath, RUNNER_SOURCE, { mode: 0o700 })
   const logFd = openSync(store.logPath, 'a', 0o600)
   try {
+    // The stop action is decided here, in the (dependency-aware) host half,
+    // and handed to the detached runner as plain JSON: Windows gets an
+    // explicit taskkill /T /F while POSIX keeps the graceful signal sequence.
+    const stop = stopUpgradeTarget(launch.targetPid, platformKind())
     const child = spawn(process.execPath, [store.runnerPath, JSON.stringify({
       ...launch,
       statePath: store.statePath,
       logPath: store.logPath,
+      stop,
       config: { repoDir: config.repoDir, branch: config.branch, logMaxBytes: config.logMaxBytes },
     })], {
       detached: true,
@@ -104,6 +109,24 @@ const log = (message) => {
 }
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
+// Platform semantics decided by the host half (src/proc.ts) and passed over
+// the wire: Windows asks for an explicit process-tree kill, POSIX relies on
+// the graceful signal sequence below. Falls back to the old behavior when the
+// field is absent (e.g. a runner written by an older plugin).
+const stop = input.stop || { mode: 'signal' }
+
+// Spawn wrapper for the dependency-free runner. On Windows a bare command may
+// be a .cmd/.bat shim (pnpm); CreateProcess cannot launch those directly, so
+// shell mode routes them through cmd.exe and quotes arguments — the runner
+// equivalent of the 'cross-spawn' used in the dependency-aware host half.
+function spawnPlatform(command, args, options) {
+  if (process.platform === 'win32') {
+    const bare = !/[\\\\/]/.test(command) && !/\\.[A-Za-z0-9]+$/.test(command)
+    if (bare) return spawn(command, args, { ...(options || {}), shell: true })
+  }
+  return spawn(command, args, options || {})
+}
+
 function writeState(result) {
   let previous = {}
   try { if (statePath) previous = JSON.parse(readFileSync(statePath, 'utf8')) } catch {}
@@ -129,7 +152,7 @@ function run(command, args, cwd, timeoutMs, extraEnv = {}) {
       reject(new Error('no log path'))
       return
     }
-    const child = spawn(command, args, {
+    const child = spawnPlatform(command, args, {
       cwd,
       // CI skips only the repository's development Git-hook installer. Native
       // dependencies still run their normal install scripts.
@@ -152,6 +175,14 @@ function run(command, args, cwd, timeoutMs, extraEnv = {}) {
 
 async function stopCurrent() {
   if (!Number.isInteger(input.targetPid) || input.targetPid <= 1) throw new Error('invalid current DSH pid')
+  if (stop.mode === 'taskkill' && process.platform === 'win32') {
+    // Windows cannot deliver POSIX signals. The host decided on an explicit
+    // process-tree kill (taskkill /T /F) so no child process keeps the
+    // checkout or build output locked during the reset/install/rollback.
+    log('terminating DSH process tree (taskkill /T /F) for pid ' + input.targetPid)
+    await run(stop.command, stop.args, undefined, 30000)
+    return
+  }
   try {
     process.kill(input.targetPid, 'SIGTERM')
     log('sent SIGTERM to current DSH pid ' + input.targetPid)
