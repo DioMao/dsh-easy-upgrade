@@ -11,6 +11,7 @@ export interface UpgradeLaunch {
   branch: string
   oldHead: string
   newHead: string
+  newVersion: string | null
   targetPid: number
   launch: LaunchSpec
 }
@@ -46,7 +47,7 @@ export async function pickLoopbackPort(): Promise<number> {
 
 /**
  * Start an independent Node process that waits for the HTTP response, stops the
- * current DSH process, resets to origin/<branch>, builds, and launches the
+ * current DSH process, resets to the checked remote revision, builds, and launches the
  * exact command captured when this plugin activated.
  */
 export async function launchUpgradeRunner(
@@ -264,12 +265,29 @@ function spawnPlatform(command, args, options) {
   return spawn(command, args, options || {})
 }
 
-function writeState(result) {
+function completedStatus() {
+  const version = typeof input.newVersion === 'string' ? input.newVersion : null
+  return {
+    localVersion: version,
+    remoteVersion: version,
+    localSha: input.newHead,
+    remoteSha: input.newHead,
+    ahead: 0,
+    behind: 0,
+    upToDate: true,
+  }
+}
+
+function writeState(result, status, awaitingRecovery = false) {
   let previous = {}
   try { if (statePath) previous = JSON.parse(readFileSync(statePath, 'utf8')) } catch {}
   const state = {
     ...previous,
-    upgrading: false,
+    ...(status ? { checkedAt: now(), status, lastCheckError: null } : {}),
+    // A successful runner has rebuilt the checkout, but the replacement DSH
+    // process must finish its first status check before the browser can leave
+    // the progress surface without flashing an actionable update control.
+    upgrading: awaitingRecovery,
     // The progress server address is per-run; never let a stale one survive.
     progress: null,
     lastUpgrade: result,
@@ -380,7 +398,7 @@ async function main() {
     stopped = true
     stage = STAGE.RESET
     setStage(stage)
-    await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', 'origin/' + input.branch], input.repoDir, 120000)
+    await run('git', ['-C', input.repoDir, '--no-pager', '-c', 'color.ui=false', 'reset', '--hard', input.newHead], input.repoDir, 120000)
     stage = STAGE.INSTALL
     setStage(stage)
     await run('pnpm', ['install', '--frozen-lockfile'], input.repoDir, 20 * 60 * 1000, { CI: 'true' })
@@ -397,7 +415,7 @@ async function main() {
     success = true
     currentPhase = 'done'
     finishedAt = now()
-    writeState({ ok: true, at: now(), from: input.oldHead, to: input.newHead })
+    writeState({ ok: true, at: now(), from: input.oldHead, to: input.newHead }, completedStatus(), true)
     log('upgrade completed from ' + input.oldHead + ' to ' + input.newHead)
   } catch (error) {
     errorText = error instanceof Error ? error.message : String(error)

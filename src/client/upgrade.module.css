@@ -239,6 +239,30 @@
   overflow-wrap: anywhere;
 }
 
+.logLine {
+  min-height: 16px;
+}
+
+.logTimestamp {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.logCommand {
+  color: var(--dsw-alias-brand-primary);
+}
+
+.logError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.logInfo {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.logSuccess {
+  color: var(--dsw-alias-state-success-primary);
+}
+
 /* Failure-rollback option inside the confirmation dialog. */
 .rollbackOption {
   margin-top: 10px;

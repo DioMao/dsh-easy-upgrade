@@ -4,6 +4,7 @@ import type { UpgradeConfig } from './config.js'
 import { checkForUpdate, currentHead, worktreeIsClean } from './git.js'
 import { fetchLatestRelease, type GithubRelease } from './release-notes.js'
 import type { LaunchSpec, StateStore, UpgradeState } from './state.js'
+import { awaitingHostRecovery } from './state.js'
 import { launchUpgradeRunner, pickLoopbackPort } from './upgrade-runner.js'
 
 export interface UpgradeApiController {
@@ -50,6 +51,15 @@ export class UpgradeController implements UpgradeApiController {
   async status(): Promise<UpgradeState> {
     if (this.current === undefined) this.current = await this.store.read()
     return this.current
+  }
+
+  async completeRestartRecovery(): Promise<UpgradeState> {
+    const previous = await this.status()
+    if (!awaitingHostRecovery(previous)) return previous
+    const next: UpgradeState = { ...previous, upgrading: false, progress: null }
+    await this.store.write(next)
+    this.current = next
+    return next
   }
 
   async check(): Promise<UpgradeState> {
@@ -131,9 +141,9 @@ export class UpgradeController implements UpgradeApiController {
       throw new UpgradeApiError(409, 'up-to-date', '当前已是远程主分支的最新版本。')
     }
     const oldHead = await currentHead(this.config.repoDir)
-    // Start the new upgrade from a bounded log so a fresh run is not appended
-    // to unbounded prior content.
-    await this.store.trimLog(this.config.logMaxBytes)
+    // A live log belongs to exactly one accepted upgrade. Capacity trimming is
+    // retained for maintenance paths, but cannot define a new-run boundary.
+    await this.store.resetLog()
     // Reserve the detached progress server's loopback port and token here, in
     // the still-alive host, so the browser can learn the address from /status
     // before the runner stops this process.
@@ -153,6 +163,7 @@ export class UpgradeController implements UpgradeApiController {
         branch: this.config.branch,
         oldHead,
         newHead: remote.remoteSha,
+        newVersion: remote.remoteVersion,
         targetPid: process.pid,
         launch: this.launch,
       }, {

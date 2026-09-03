@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   IconChevronDownOutline14,
@@ -14,6 +14,7 @@ import type { GithubRelease } from '../release-notes.ts'
 import type { UpgradeProgressInfo } from '../progress.ts'
 import type { UpgradeProgress, UpgradeState } from '../state.ts'
 import { ReleaseNotes } from './ReleaseNotes.tsx'
+import { DEFAULT_UPGRADE_LOG_MAX_LINES, classifyUpgradeLog } from './upgrade-log.ts'
 import { STAGE_LABEL_KEYS } from './stages.ts'
 import css from './upgrade.module.css'
 
@@ -64,6 +65,7 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
   const [runProgress, setRunProgress] = useState<UpgradeProgressInfo | null>(null)
   const [logOpen, setLogOpen] = useState(false)
   const [liveLog, setLiveLog] = useState<string | null>(null)
+  const logPanelRef = useRef<HTMLDivElement>(null)
   // Development-mode mirror of the row config: lets even an up-to-date checkout
   // show the upgrade entry so the full flow can be exercised locally.
   const [forceUpdateTest, setForceUpdateTest] = useState(false)
@@ -73,6 +75,13 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
   // restarted service reports it is no longer upgrading.
   const syncProgress = useCallback((value: UpgradeState): void => {
     if (value.progress !== null) setProgressInfo(value.progress)
+    else if (value.upgrading) {
+      // The restarted Host is reachable but the detached runner is gone. Read
+      // the same-run log from the Host immediately instead of waiting for four
+      // failed loopback polls.
+      setProgressInfo(null)
+      setRunProgress(null)
+    }
     if (!value.upgrading) {
       setUpgrading(false)
       setProgressInfo(null)
@@ -152,23 +161,26 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
     return () => window.clearInterval(timer)
   }, [refreshStatus])
 
+  const pending = upgrading || state?.upgrading === true
+
   // While an upgrade is pending, poll /status frequently; once the restarted
   // service is back and reports it is no longer upgrading, the cell recovers.
   // Between stop and restart /status fails, so the detached runner's progress
   // server (state.progress) takes over for stage and log display.
-  const pending = upgrading || state?.upgrading === true
   useEffect(() => {
     if (!pending) return
     let runnerFailures = 0
     const tick = async (): Promise<void> => {
       const result = await request('/status', 'GET')
+      let activeProgress = progressInfo
       if (result.ok) {
         runnerFailures = 0
+        activeProgress = result.state.progress
         setState(result.state)
         syncProgress(result.state)
-      } else if (progressInfo !== null) {
+      } else if (activeProgress !== null) {
         const payload = await requestRunner<RunnerProgressPayload>(
-          `${runnerUrl(progressInfo)}/progress?token=${encodeURIComponent(progressInfo.token)}`,
+          `${runnerUrl(activeProgress)}/progress?token=${encodeURIComponent(activeProgress.token)}`,
         )
         if (payload !== null && payload.ok) {
           runnerFailures = 0
@@ -179,9 +191,9 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
         }
       }
       if (logOpen) {
-        if (progressInfo !== null) {
+        if (activeProgress !== null) {
           const payload = await requestRunner<RunnerLogPayload>(
-            `${runnerUrl(progressInfo)}/log?token=${encodeURIComponent(progressInfo.token)}`,
+            `${runnerUrl(activeProgress)}/log?token=${encodeURIComponent(activeProgress.token)}`,
           )
           setLiveLog(payload !== null && payload.ok ? payload.log : null)
         } else {
@@ -199,38 +211,52 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
   const tooltip = useMemo(() => updateAvailable
     ? t('railUpgrade')
     : t('railCheck', { version }), [t, updateAvailable, version])
+  const logLines = useMemo(
+    () => liveLog === null ? [] : classifyUpgradeLog(liveLog, DEFAULT_UPGRADE_LOG_MAX_LINES),
+    [liveLog],
+  )
+
+  useEffect(() => {
+    if (!logOpen || !pending || liveLog === null) return
+    const panel = logPanelRef.current
+    if (panel !== null) panel.scrollTop = panel.scrollHeight
+  }, [liveLog, logOpen, pending])
 
   if (!wide) {
     const action = updateAvailable ? openUpgradeDialog : () => { void check(true) }
     // Rail geometry is a single circular icon, so a manual-check failure is
     // surfaced through the accessible label / Tooltip overlay (visible on
     // hover and keyboard focus) instead of an inline error row.
-    const label = manualError !== null
-      ? t('railCheckFailed', { message: manualError })
-      : tooltip
+    const label = pending
+      ? t('restartPending')
+      : manualError !== null
+        ? t('railCheckFailed', { message: manualError })
+        : tooltip
     return (
       <div role="status" aria-live="polite" style={{ display: 'contents' }}>
         <Tooltip label={label} side="right" maxWidth={260}>
           <Button
             variant="ghost"
             aria-label={label}
-            disabled={checking || upgrading}
+            disabled={checking || pending}
             onClick={() => {
               if (manualError !== null) setManualError(null)
               action()
             }}
             style={{ width: 36, minWidth: 36, height: 36, padding: 0, borderRadius: '50%' }}
           >
-            {updateAvailable
-              ? <IconDownloadOutline16 size={16} />
-              : <IconRefreshOutline16 size={16} />}
+            {pending
+              ? <IconLoadingOutline16 size={16} className={css.spinner} />
+              : updateAvailable
+                ? <IconDownloadOutline16 size={16} />
+                : <IconRefreshOutline16 size={16} />}
           </Button>
         </Tooltip>
       </div>
     )
   }
 
-  if (upgrading || state?.upgrading === true) {
+  if (pending) {
     const stage = runProgress?.stage ?? null
     const heading = runProgress?.phase === 'rollback' ? t('phaseRollback') : t('progressTitle')
     const stageLabel = stage === null ? t('stageUnknown') : t(STAGE_LABEL_KEYS[stage])
@@ -250,8 +276,15 @@ export function UpgradeCell({ wide, t }: UpgradeCellProps) {
           </button>
         </div>
         {logOpen && (
-          <div className={css.logPanel} role="status">
-            {liveLog !== null ? liveLog : t('logUnavailable')}
+          <div ref={logPanelRef} className={css.logPanel} role="status">
+            {liveLog === null
+              ? t('logUnavailable')
+              : logLines.map((line, index) => (
+                <div key={index} className={css.logLine}>
+                  {line.timestamp !== null && <span className={css.logTimestamp}>{line.timestamp}</span>}
+                  <span className={LOG_KIND_CLASS[line.kind]}>{line.text}</span>
+                </div>
+              ))}
           </div>
         )}
       </div>
@@ -416,6 +449,13 @@ async function requestRunner<T>(url: string): Promise<T | null> {
 
 function runnerUrl(progress: UpgradeProgress): string {
   return `http://127.0.0.1:${progress.port}`
+}
+
+const LOG_KIND_CLASS = {
+  command: css.logCommand,
+  error: css.logError,
+  info: css.logInfo,
+  success: css.logSuccess,
 }
 
 const containerStyle = {

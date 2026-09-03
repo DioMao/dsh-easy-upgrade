@@ -3,7 +3,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { createApiHandler, UpgradeController } from './api.js'
 import { resolveConfig, type UpgradeConfigInput } from './config.js'
 import { detectSourceInstall } from './detect.js'
-import { StateStore, type LaunchSpec } from './state.js'
+import { StateStore, awaitingHostRecovery, type LaunchSpec } from './state.js'
 import { isTrustedApiRequest } from './trust-fence.js'
 
 export const name = 'dsh-easy-upgrade'
@@ -47,10 +47,10 @@ export function apply(ctx: Context, input?: UpgradeConfigInput): void {
     handler: api,
   }), 'dsh-easy-upgrade: API routes')
 
-  // Boot the plugin: prepare the state dir, clear any stale "upgrading" flag a
-  // previous (now-dead) process may have left, cap the log, then run the first
-  // update check (which initializes the UI). Ordering matters here — the stale
-  // flag reset must finish before the first check writes state back.
+  // Boot the plugin: prepare the state dir, distinguish a successful runner
+  // awaiting Host recovery from a stale interrupted task, cap the log, then run
+  // the first update check. The recovered task settles only after that check so
+  // the browser never flashes an actionable update control during restart.
   void (async () => {
     try {
       await store.ensure()
@@ -75,12 +75,20 @@ export function apply(ctx: Context, input?: UpgradeConfigInput): void {
         }
       }
       const bootState = await store.read()
-      if (bootState.upgrading) {
+      const recovering = awaitingHostRecovery(bootState)
+      if (bootState.upgrading && !recovering) {
         await store.write({ ...bootState, upgrading: false })
         logger('cleared stale upgrading flag left by a previous process')
       }
       await store.trimLog(config.logMaxBytes)
-      await controller.check()
+      try {
+        await controller.check()
+      } finally {
+        if (recovering) {
+          await controller.completeRestartRecovery()
+          logger('completed post-upgrade recovery after the initial status check')
+        }
+      }
     } catch (error) {
       // A boot-time failure must never take the plugin or the service down; the
       // periodic check/trim below keeps retrying.

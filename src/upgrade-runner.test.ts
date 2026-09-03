@@ -12,6 +12,86 @@ import { pickLoopbackPort, RUNNER_SOURCE } from './upgrade-runner.js'
  */
 
 describe.skipIf(process.platform === 'win32')('upgrade runner', () => {
+  it('persists the checked target as current after a successful upgrade', { timeout: 90_000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-runner-success-'))
+    let target: ChildProcess | undefined
+    try {
+      const { repoDir, oldHead, newHead } = await makeRepo(dir)
+      const fake = await setupFakePnpm(dir, false)
+      target = spawnDummyChild()
+      const statePath = join(dir, 'state.json')
+      const logPath = join(dir, 'upgrade.log')
+      const runnerPath = join(dir, 'runner.mjs')
+      await writeFile(statePath, JSON.stringify({
+        checkedAt: '2026-01-01T00:00:00Z',
+        status: {
+          localVersion: '0.1.0', remoteVersion: '0.2.0', localSha: oldHead, remoteSha: newHead,
+          ahead: 0, behind: 1, upToDate: false,
+        },
+        lastCheckError: null,
+        upgrading: true,
+        lastUpgrade: null,
+        progress: { port: 43210, token: 'stale-token', startedAt: '2026-01-01T00:00:00Z' },
+        installKind: 'source',
+        repoDir,
+      }), 'utf8')
+      await writeFile(runnerPath, RUNNER_SOURCE, { mode: 0o700 })
+
+      const child = spawn(process.execPath, [runnerPath, JSON.stringify({
+        repoDir,
+        branch: 'master',
+        oldHead,
+        newHead,
+        newVersion: '0.2.0',
+        targetPid: target.pid,
+        statePath,
+        logPath,
+        stop: { mode: 'signal' },
+        config: { repoDir, branch: 'master', logMaxBytes: 1024 * 1024 },
+        progressPort: 0,
+        progressToken: '',
+        rollbackOnFailure: false,
+        launch: { execPath: process.execPath, args: ['-e', ''], cwd: dir },
+      })], {
+        env: { ...process.env, PATH: `${fake.binDir}:${process.env.PATH ?? ''}`, PWN_STORE: fake.store, PWN_BUILD_COUNT: fake.count, PWN_FAIL_FIRST_BUILD: fake.failFirstBuild },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      const { code } = await waitClose(child)
+      expect(code).toBe(0)
+      expect(runGit(repoDir, ['rev-parse', 'HEAD']).trim()).toBe(newHead)
+      expect((await readFile(fake.store, 'utf8')).trim().split('\n').filter(Boolean)).toEqual([
+        'pnpm install --frozen-lockfile',
+        'pnpm clean',
+        'pnpm build',
+      ])
+
+      const state = JSON.parse(await readFile(statePath, 'utf8')) as {
+        checkedAt: string
+        status: Record<string, unknown>
+        upgrading: boolean
+        progress: unknown
+        lastUpgrade: Record<string, unknown>
+      }
+      expect(state.checkedAt).toEqual(expect.any(String))
+      expect(state.status).toEqual({
+        localVersion: '0.2.0',
+        remoteVersion: '0.2.0',
+        localSha: newHead,
+        remoteSha: newHead,
+        ahead: 0,
+        behind: 0,
+        upToDate: true,
+      })
+      expect(state.upgrading).toBe(true)
+      expect(state.progress).toBeNull()
+      expect(state.lastUpgrade).toMatchObject({ ok: true, from: oldHead, to: newHead })
+    } finally {
+      if (target !== undefined) terminate(target)
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('fully rolls back and rebuilds when rollbackOnFailure is set', { timeout: 90_000 }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-runner-full-'))
     let target: ChildProcess | undefined
@@ -30,6 +110,7 @@ describe.skipIf(process.platform === 'win32')('upgrade runner', () => {
         branch: 'master',
         oldHead,
         newHead,
+        newVersion: '0.2.0',
         targetPid: target.pid,
         statePath,
         logPath,
@@ -40,7 +121,7 @@ describe.skipIf(process.platform === 'win32')('upgrade runner', () => {
         rollbackOnFailure: true,
         launch: { execPath: process.execPath, args: ['-e', ''], cwd: dir },
       })], {
-        env: { ...process.env, PATH: `${fake.binDir}:${process.env.PATH ?? ''}`, PWN_STORE: fake.store, PWN_BUILD_COUNT: fake.count },
+        env: { ...process.env, PATH: `${fake.binDir}:${process.env.PATH ?? ''}`, PWN_STORE: fake.store, PWN_BUILD_COUNT: fake.count, PWN_FAIL_FIRST_BUILD: fake.failFirstBuild },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
 
@@ -119,6 +200,7 @@ describe.skipIf(process.platform === 'win32')('upgrade runner', () => {
         branch: 'master',
         oldHead,
         newHead,
+        newVersion: '0.2.0',
         targetPid: target.pid,
         statePath,
         logPath,
@@ -129,7 +211,7 @@ describe.skipIf(process.platform === 'win32')('upgrade runner', () => {
         rollbackOnFailure: false,
         launch: { execPath: process.execPath, args: ['-e', ''], cwd: dir },
       })], {
-        env: { ...process.env, PATH: `${fake.binDir}:${process.env.PATH ?? ''}`, PWN_STORE: fake.store, PWN_BUILD_COUNT: fake.count },
+        env: { ...process.env, PATH: `${fake.binDir}:${process.env.PATH ?? ''}`, PWN_STORE: fake.store, PWN_BUILD_COUNT: fake.count, PWN_FAIL_FIRST_BUILD: fake.failFirstBuild },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
 
@@ -182,8 +264,13 @@ async function makeRepo(dir: string): Promise<{ repoDir: string, oldHead: string
   return { repoDir, oldHead, newHead }
 }
 
-/** Fake `pnpm` on PATH: records calls, sleeps on install, fails first build. */
-async function setupFakePnpm(dir: string): Promise<{ binDir: string, store: string, count: string }> {
+/** Fake `pnpm` on PATH: records calls and can fail the first build. */
+async function setupFakePnpm(dir: string, failFirstBuild = true): Promise<{
+  binDir: string
+  store: string
+  count: string
+  failFirstBuild: string
+}> {
   const binDir = join(dir, 'bin')
   const store = join(dir, 'pnpm.log')
   const count = join(dir, 'build.count')
@@ -203,7 +290,7 @@ async function setupFakePnpm(dir: string): Promise<{ binDir: string, store: stri
     '    count=$((count + 1))',
     '    echo "$count" > "$PWN_BUILD_COUNT"',
     '    sleep 0.1',
-    '    if [ "$count" -eq 1 ]; then',
+    '    if [ "${PWN_FAIL_FIRST_BUILD:-true}" = "true" ] && [ "$count" -eq 1 ]; then',
     '      echo "fake build failed" >&2',
     '      exit 7',
     '    fi',
@@ -212,7 +299,7 @@ async function setupFakePnpm(dir: string): Promise<{ binDir: string, store: stri
     'exit 0',
   ].join('\n')
   await writeFile(join(binDir, 'pnpm'), `${script}\n`, { mode: 0o755 })
-  return { binDir, store, count }
+  return { binDir, store, count, failFirstBuild: failFirstBuild ? 'true' : 'false' }
 }
 
 function spawnDummyChild(): ChildProcess {

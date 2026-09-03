@@ -53,6 +53,11 @@ const EMPTY_STATE: UpgradeState = {
   repoDir: null,
 }
 
+/** True only after the runner succeeded and before the restarted host settles it. */
+export function awaitingHostRecovery(state: UpgradeState): boolean {
+  return state.upgrading && state.progress === null && state.lastUpgrade?.ok === true
+}
+
 /** Own all persistent data in one user-owned DSH_HOME subdirectory. */
 export class StateStore {
   readonly statePath: string
@@ -97,6 +102,11 @@ export class StateStore {
   async writeLaunch(launch: LaunchSpec): Promise<void> {
     await this.ensure()
     await atomicJson(this.launchPath, launch)
+  }
+
+  async resetLog(): Promise<void> {
+    await this.ensure()
+    await writeFile(this.logPath, '', { mode: 0o600 })
   }
 
   /**

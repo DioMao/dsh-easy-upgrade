@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { StateStore } from './state.js'
+import { StateStore, awaitingHostRecovery } from './state.js'
 import type { GitUpdateStatus } from './git.js'
 
 async function tempStore(): Promise<{ store: StateStore, dir: string }> {
@@ -33,6 +33,23 @@ describe('StateStore', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  it('identifies only a successful runner awaiting Host recovery', () => {
+    const completed = {
+      checkedAt: '2026-01-01T00:00:00Z',
+      status,
+      lastCheckError: null,
+      upgrading: true,
+      lastUpgrade: { ok: true, at: '2026-01-01T00:00:01Z', from: 'a'.repeat(40), to: 'b'.repeat(40) },
+      progress: null,
+      installKind: 'source' as const,
+      repoDir: '/tmp/repo',
+    }
+    expect(awaitingHostRecovery(completed)).toBe(true)
+    expect(awaitingHostRecovery({ ...completed, progress: { port: 43210, token: 'abc', startedAt: '2026-01-01T00:00:00Z' } })).toBe(false)
+    expect(awaitingHostRecovery({ ...completed, lastUpgrade: { ...completed.lastUpgrade, ok: false } })).toBe(false)
+    expect(awaitingHostRecovery({ ...completed, upgrading: false })).toBe(false)
   })
 
   it('round-trips state through write/read', async () => {
@@ -114,6 +131,20 @@ describe('StateStore', () => {
       const state = await store.read()
       expect(state.upgrading).toBe(true)
       expect(state.progress).toBeNull()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resets the log for a new upgrade run', async () => {
+    const { store, dir } = await tempStore()
+    try {
+      await writeFile(join(dir, 'upgrade.log'), 'previous run\n', 'utf8')
+      await store.resetLog()
+      const { readFile } = await import('node:fs/promises')
+      expect(await readFile(join(dir, 'upgrade.log'), 'utf8')).toBe('')
+      await writeFile(join(dir, 'upgrade.log'), 'current run\n', { flag: 'a' })
+      expect(await readFile(join(dir, 'upgrade.log'), 'utf8')).toBe('current run\n')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
